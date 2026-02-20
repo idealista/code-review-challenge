@@ -1,107 +1,101 @@
-Code Review
+# Code Review - Sistema de Puntuación de Anuncios
 
-Primero vamos a echar un vistazo al pom.xml
-Versiones viejas de Spring y Java
-Comprobado: version de Spring obsoleta
-Podría tratarse de una app legacy, sin embargo lo trataré como si fuera un posible error y sugeriré subir la versión
-JUnit y mockito? Spring incorpora ambos en otra dependencia.
-Comprobado: Efectivamente viene con spring-boot-starter-test
-Falta Lombok
+He realizado una revisión del código actual. Deberia tratarse de un proyecto legacy, aunque cuesta creerlo por la falta de api.yml y que el application.yml esté vacio, ademas de tener decisiones técnicas que se consideran obsoletas o que no encajan del todo con una arquitectura hexagonal limpia 
 
-Parece que usa arquitectura hexagonal por las capas de domain, application e infraestructure.
+En un los primeros commits he dejado mis anotaciones en sucio, por si quereis saber más acerca de como pienso. 
 
-Vamos con dominio primero:
-Empezamos con Ad.java
-Definitivamente se necesita Lombok
-Utiliza Date en vez de LocalDate o LocalDateTime, podria deberse a ser algo viejo pero eso hay que cambiarlo 100%
+A continuación dejo los puntos de mejora separados por capas, incluyendo ejemplos de lo que he visto y cómo podríamos solucionarlo.
 
-El isComplete() chirria, se podria encargar el propio enum Typology de devolver estos datos
+---
 
-Seguimos con Constants.java
+## Configuración y General (pom.xml)
 
-los nombres están mal, deberian indicar el nombre a que se refieren. Supongo que segun el enunciado "Si el anuncio no tiene ninguna foto se restan 10 puntos. Cada foto que tenga el anuncio proporciona 20 puntos si es una foto de alta resolución (HD) o 10 si no lo es" querrá decir que en Constants.java deberia poner los nombres como NO_PHOTO_SCORE = 10 y que sea un valor que se resta, en caso de foto HD que sea PHOTO_HD_SCORE = 20; por ejemplo
+Antes de entrar en las capas, hay un par de cosas en la base que chirrían un poco:
 
-en Quality.java de momento nada que añadir
+*   **Versiones obsoletas:** Estamos usando versiones muy viejas de Spring y Java. Deberíamos considerar subir a la última versión estable (Java 17/21 y Spring Boot 3.x o incluso 4.x) .
+*   **Dependencias redundantes:** He visto `JUnit` y `Mockito` declarados por separado. Spring Boot ya incluye ambos en `spring-boot-starter-test`, así que podemos limpiar eso.
+*   **Falta de Lombok:** Estamos escribiendo muchísimos getters, setters y constructores a mano. Meter Lombok nos ahorraría muchisimas líneas de código
+---
 
-AdRepository.java 
+## Domain Layer
 
-usar un findAll y un save mejor, posiblemente con un spec y si el volumen es alto usar un @query de jpa
+La capa de dominio debería ser la más limpia, pero tiene bastante ruido:
 
-Vamos con capa Application:
+### Entidades y Modelos (Ad.java)
+Estamos usando `java.util.Date`, que es una pesadilla para manejar zonas horarias y cálculos. Deberíamos pasar a `LocalDate` o `LocalDateTime`
 
-AdsService.java renombrar! deberia ser AdService.java e igual para la implementación
-devuelve una lista de PublicAd y QualityAd pero estan en infraestructura. Deberia devolver Ad en todo caso y mapearlos en el controller
-
-AdsServiceImpl.java nombre mal
-declara el repo con @Autowired, eso está mal
-
-de entrada mucho código duplicado, se podría extraer la parte comun 
-
-findPublicAds hace sort, pero por defecto es de menor a mayor a si que estará mostrando los de peor puntuación primero, todo lo contrario a lo que se pide
-
-nada de logs?
-
-calculateScore() es larguisimo, esto no tiene una unica responsabilidad
-parece que habría que separarlo en los diferentes calculos, de hecho hasta viene comentado
-sugerir un scoreForPhotos() scoreFotDescription()...
-
-el uso de las contantes mal nombradas
-
-el calculo de fotos parece bien
-
-al calculo de descripción le quitaba el optional y en el if comprobaba que no sea null
-
-el array wds hay que renombrarlo por ejemplo descriptionWords y el caracter separador deberia tener en cuenta saltos de lineas
-lo de los tipology de nuevo se podria meter en el enum
-los ifs se podrian simplificar, si es >50 else if >30 else y no hace falta tanto
-
-lo de las palabras clave está mal planteado, habría que coger el array de wds y ponerlo todo en minuscula para que cuadre, si no no lo va a coger y tampoco si tiene acentos, no todo el mundo los escribe. Ademas deberian estar todos en una lista, en vez de tener una linea de codigo por cada palabra, siempre y cuando sumen lo mismo. 
-
-Comprobado: el split bueno es "\\s+" con esto cubres espacio, salto de linea, doble espacio y tabulación
-Comprobado: se puede usar java.text.normalizer para los acentos
-
-Esto:
-//Calcular puntuación por completitud
-if (ad.isComplete()) {
-score = Constants.FORTY;
+Además, la lógica de isComplete() está metida con calzador en la entidad:
+```java
+// Ad.java - Línea 50
+public boolean isComplete() {
+    return (Typology.GARAGE.equals(typology) && !pictures.isEmpty())
+            || (Typology.FLAT.equals(typology) && !pictures.isEmpty() && description != null && !description.isEmpty() && houseSize != null)
+            || ...
 }
-Está igualando el score a 40, está mal
+```
+**Sugerencia:** Este tipo de lógica podría meterse en el propio enum `Typology` o en una clase de validación específica
 
-las tres siguientes llamadas a setScore() creo que sobran, se puede establecer una constante para el umbral, una de maximo y una de minimo. Math de java lo permite
-Comprobado: Math lo permite con umbrales
+### Naming y Constantes (Constants.java)
+Los nombres de las constantes actuales no dicen nada. `Constants.FORTY` no explica *por qué* es 40
+```java
+public static final int TEN = 10;
+public static final int TWENTY = 20;
+```
+**Sugerencia:** Deberían ser descriptivos: `NO_PHOTO_SCORE_PENALTY = -10`, `PHOTO_HD_SCORE = 20` por ej
 
-el set del date esta cambiando siempre la fecha, deberia comprobar que no sea null. Deberia ser LocalDate como poco.
+---
 
-tiene un save individual? eso puede ser demasiado si no conocemos el volumen, lo sacaria fuera y haria un saveAll para hacer solo una trnsaccion con bbdd. Se deberia añadir @Transactional por si hay algun problema
+## Application Layer
 
-en general esta clase hay que refactorizarla bastante.
+Aquí es donde está el "grueso" del problema, especialmente en la implementación del servicio:
 
-Seguimos con AdsController
+### Inyección de Dependencias y Naming
+Seguimos usando `@Autowired` directamente en el campo
+```java
+// AdsServiceImpl.java
+@Autowired
+private AdRepository adRepository;
+```
+**Sugerencia:** Pasar a **inyección por constructor**. También, renombrar `AdsService` a `AdService` (singular), siguiendo las convenciones habituales
 
-@Autowired de nuevo, es un error.
-calculateScore no deberia tener verbo get, pondria post
+### Refactorización de calculateScore()
+El método `calculateScore` en `AdsServiceImpl` es una "función Dios". Hace de todo: puntúa fotos, analiza descripciones, comprueba palabras clave... es demasiado largo
 
-no veo manejo de errores
+Además, hay errores de lógica graves:
+```java
+// Error: Está sobreescribiendo el score acumulado en vez de sumarlo
+if (ad.isComplete()) {
+    score = Constants.FORTY;
+}
+```
+**Sugerencia:** Dividir en métodos privados con una única responsabilidad: `calculatePhotoScore()`, `calculateDescriptionScore()`... Para el tema de las palabras clave, en lugar de mil `if`, usar una lista y normalizar el texto (quitar acentos y pasar a minúsculas) para que la búsqueda sea robusta
 
-seguimos con PublicAd
-seguimos con QualityAd
+---
 
-ambas son muy similares, deberia heredar qualityAd de publicAd
+## Infrastructure Layer
 
-InMemoryPersistence.java
-datos hardcoded para la prueba. 
-Usa .FORTY en el filtro, eso no deberia estar ahi
+### Controladores (AdsController.java)
+Estamos usando verbos `GET` para acciones que hacen modificaciones(`calculateScore`)
+```java
+@GetMapping("/ads/score")
+public ResponseEntity<Void> calculateScore() { ... }
+```
+**Sugerencia:** Debería ser un `POST`. Además, falta un manejo global de excepciones (un `@ControllerAdvice` vendría geniial)
 
-AdVO y PictureVO renombrarlos y cambiar el VO por Entity
-Typology.valueOf? esto puede estar mal
+### Persistencia y Mapeo
+He visto que en `InMemoryPersistence` se cuelan constantes de puntuación (`Constants.FORTY`). La persistencia no debería saber nada de las reglas de negocio
 
-en  private Picture mapToDomain el .orElse(null) mete un null en la lista de fotos
+También, los DTOs `PublicAd` y `QualityAd` son casi iguales. Podríamos usar herencia o una estructura común tipo `CommonAd` para no repetir campos
 
-Tests:
-sollo un test unitario! 
-se necesitaria probar todos los casos de puntuaciones y casos limite (null, sin fotos...)
+---
 
-ningun test de integración
+## Testing y Calidad
 
-en al application.yml no hay nada! y además echo en falta un api.yml 
-aunque no sea un desarrollo api first hace falta para la comunicación front y back
+Actualmente el proyecto está "desnudo" en cuanto a tests:
+*   Solo hay **un test unitario**. Necesitamos cubrir todos los casos borde del scoring (anuncios sin fotos, descripciones nulas, puntuaciones máximas...)
+*   **Cero tests de integración.** No sabemos si el flujo completo desde el Controller hasta el Repo funciona bien
+*   **Falta documentación de API.** Un `api.yml` o Swagger es fundamental para que el Front sepa que esperar, de hecho si se trabaja con API First deberia ser lo primero en crearse
+
+---
+
+**Resumen:** La base está ahí, pero hace falta una limpieza profunda de lógica de negocio que se ha quedado desperdigada por donde no debería y modernizar un poco las herramientas que usamos
