@@ -87,3 +87,21 @@ seguimos con PublicAd
 seguimos con QualityAd
 
 ambas son muy similares, deberia heredar qualityAd de publicAd
+
+InMemoryPersistence.java
+datos hardcoded para la prueba. 
+Usa .FORTY en el filtro, eso no deberia estar ahi
+
+AdVO y PictureVO renombrarlos y cambiar el VO por Entity
+Typology.valueOf? esto puede estar mal
+
+en  private Picture mapToDomain el .orElse(null) mete un null en la lista de fotos
+
+Tests:
+sollo un test unitario! 
+se necesitaria probar todos los casos de puntuaciones y casos limite (null, sin fotos...)
+
+ningun test de integración
+
+en al application.yml no hay nada! y además echo en falta un api.yml 
+aunque no sea un desarrollo api first hace falta para la comunicación front y back
