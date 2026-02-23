@@ -97,5 +97,21 @@ Actualmente el proyecto está "desnudo" en cuanto a tests:
 *   **Falta documentación de API.** Un `api.yml` o Swagger es fundamental para que el Front sepa que esperar, de hecho si se trabaja con API First deberia ser lo primero en crearse
 
 ---
+##
+*Resumen:* La base está ahí, pero hace falta una limpieza profunda de lógica de negocio que se ha quedado desperdigada por donde no debería y modernizar un poco las herramientas que usamos
+---
 
-**Resumen:** La base está ahí, pero hace falta una limpieza profunda de lógica de negocio que se ha quedado desperdigada por donde no debería y modernizar un poco las herramientas que usamos
+## Mejoras adicionales si fuera un proyecto real
+
+He enfocado la revisión entendiendo que esto es una especie de prototipo, por lo que he intentado ser práctico. Pero si este codigo fuera a pasar a un entorno de producción real, ya sea como está (incluso con los cambios sugeridos) o con más entidades, un tráfico alto y una bbdd de verdad, habría que hacer unas refactorizaciones mucho más importantes que ahora mismo, pensando que es un prototipo considero que es sobreingenieria.
+
+* **Casos de Uso**: En este caso deberia haber solo 3 metodos en `ServiceImpl` lo cual es manejable pero en un caso real y ante la posibilidad de que crezca lo interesante sería tener diferentes casos de uso tipo  `CalculateScoresUseCase`, `FindPublicAdsUseCase`...
+  **¿Por qué no ahora?**: Porque para lo que parece un prototipo con 3 metodos no merece la pena crear 3 interfaces y 3 clases, sería sobreingenieria
+* **Mapeos automáticos**: El Mapeo lo he dejado como estaba y no he sugerido cambiarlo porque en el prototipo trabaja solo con 6 campos, no cuesta nada cambiarlo y es muy explicativo. Lo normal sería tener un `AdMapper.java` pero insisto en que para un prototipo no hay que comlicar demasiado las cosas.
+  **A tener en cuenta**: Si el proyecto crece incluiria la libreria MapStructur, que hace los mapeos automaticamente y ahoraria muchisimo código repetido. 
+* **Persistencia y findAll()**: La persistencia actual en memoria es una trampa mortal, hacer un `findAll()` en un List funciona con 8 registros, pero en producción con datos reales tumbaria la aplicación.
+  **¿Qué cambiaria?**: Usaría JPA y doveolveria el listado paginado con `Pageable`, no creo que nadie quiera traer 10.000 resultados de golpe. Además seria necesario añadir `@Transactional` para asegurar que se guardan todos los scores o ninguno si hay un fallo. 
+* **Alto tráfico**: Imaginando que este prototipo recibiera un trafico grande habría que hacer algunos cambios en la lógica. El endpoint actual para calcular el score, que deberia ser post, recalcula todos los resultados de forma sincrona, si fueran muchos resultados esto daria un timeout. Lo ideal seria devolver un 202 y que el calculo se hiciera asincrono con @Async, sin embargo parece más coherente que el score se calcule individualmente cuando un anuncio se cree o se edite en lugar de el calculo masivo.
+
+*Resumen:* Para esta prueba, lo que propuse anteriormente cumple su función sin volverse loco, pero si no es un prototipo y esto deberia ir a producción para millones de usuarios el primer paso sería quitar el findAll(), meter paginación y sacar el calculo pesado a un proceso asincrono.
+
